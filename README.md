@@ -65,7 +65,7 @@ Use the **same Cockroach** cluster you already seeded (or run `npm run db:setup`
 ### Backend — Railway
 
 1. **New project** → **Deploy from GitHub** → pick this repo.
-2. **Service → Settings → Root Directory:** `server` (so `server/railway.json` applies).
+2. **Root Directory:** leave as **repo root** (default). The repo includes **`railway.json`** at the root so Railpack runs **`cd server && npm ci`** and starts the API from **`server/`**. Alternatively you can set Root Directory to **`server`** and rely on **`server/railway.json`** only.
 3. **Variables** (service → Variables):
 
    | Name | Value |
@@ -78,7 +78,7 @@ Use the **same Cockroach** cluster you already seeded (or run `npm run db:setup`
 
    Do **not** set `PORT` yourself unless you know what you’re doing — Railway injects it.
 
-4. **Deploy:** `railway.json` runs **`npx prisma migrate deploy`** as **pre-deploy** and **`npm start`** for the web process. Health: **`GET /api/health`**.
+4. **Deploy:** Root **`railway.json`** runs **`cd server && npx prisma migrate deploy`** as **pre-deploy** and **`cd server && npm start`** for the web process. Health: **`GET /api/health`**.
 5. Copy the service **public HTTPS URL** (e.g. `https://xxx.up.railway.app`) for the client.
 
 ### Frontend — Vercel
