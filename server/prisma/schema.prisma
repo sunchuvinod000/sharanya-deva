@@ -1,0 +1,123 @@
+// CockroachDB — `provider = "cockroachdb"`. Apply schema with `npm run db:migrate` (avoid raw `prisma db push` on Cloud; see prisma/migrations).
+// For local Docker Postgres only, temporarily use `provider = "postgresql"` and `@default(autoincrement())` on ids.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "cockroachdb"
+}
+
+enum UserRole {
+  admin
+  priest
+}
+
+enum RequestStatus {
+  pending
+  soil_collected
+  approved
+  rejected
+  visited
+  success
+  failure
+  on_hold
+}
+
+enum RequestPriority {
+  normal
+  urgent
+}
+
+model User {
+  id           Int      @id @default(sequence())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         UserRole @default(admin)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("users")
+}
+
+model District {
+  id      Int      @id @default(sequence())
+  name    String
+  state   String
+  mandals Mandal[]
+  farmers Farmer[]
+
+  @@unique([name, state], map: "unique_district_state")
+  @@map("districts")
+}
+
+model Mandal {
+  id         Int      @id @default(sequence())
+  name       String
+  districtId Int      @map("district_id")
+  district   District @relation(fields: [districtId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  farmers    Farmer[]
+
+  @@unique([name, districtId], map: "unique_mandal_district")
+  @@map("mandals")
+}
+
+model Farmer {
+  id                Int      @id @default(sequence())
+  fullName          String   @map("full_name")
+  purposeOfVisit    String?  @map("purpose_of_visit")
+  phone             String
+  village           String
+  mandalId          Int      @map("mandal_id")
+  districtId        Int      @map("district_id")
+  state             String
+  pinCode           String   @map("pin_code")
+  district          String   @default("")
+  subdistrict       String   @default("")
+  districtGeonameId Int      @default(0) @map("district_geoname_id")
+  farmLatitude      Decimal? @map("farm_latitude") @db.Decimal(10, 8)
+  farmLongitude     Decimal? @map("farm_longitude") @db.Decimal(11, 8)
+  locationVerified  Boolean  @default(false) @map("location_verified")
+  addressJson       Json?    @map("address_json")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  mandal      Mandal   @relation(fields: [mandalId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  districtRel District @relation(fields: [districtId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  requests    Request[]
+
+  @@index([phone], map: "idx_phone")
+  @@index([districtId], map: "idx_district")
+  @@index([mandalId], map: "idx_mandal")
+  @@map("farmers")
+}
+
+model Request {
+  id               Int             @id @default(sequence())
+  farmerId         Int             @map("farmer_id")
+  status           RequestStatus   @default(pending)
+  statusBeforeHold String?        @map("status_before_hold")
+  priority         RequestPriority @default(normal)
+  notes            String?
+  requestedDate         DateTime  @map("requested_date") @db.Date
+  expectedSoilDate      DateTime? @map("expected_soil_date") @db.Date
+  expectedApprovalDate  DateTime? @map("expected_approval_date") @db.Date
+  expectedVisitDate     DateTime? @map("expected_visit_date") @db.Date
+  holdReason        String?       @map("hold_reason")
+  holdAt            DateTime?     @map("hold_at")
+  rescheduledAt     DateTime?     @map("rescheduled_at")
+  rescheduleReason  String?       @map("reschedule_reason")
+  soilCollectedDate DateTime?     @map("soil_collected_date") @db.Date
+  approvedDate      DateTime?     @map("approved_date") @db.Date
+  visitDate         DateTime?     @map("visit_date") @db.Date
+  completedDate     DateTime?     @map("completed_date") @db.Date
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  farmer Farmer @relation(fields: [farmerId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+
+  @@index([status], map: "idx_status")
+  @@index([priority], map: "idx_priority")
+  @@index([farmerId], map: "idx_farmer")
+  @@map("requests")
+}
