@@ -7,8 +7,9 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "NODE_OPTIONS=--use-system-ca node src/server.js",
+    "start": "node src/server.js",
     "dev": "NODE_OPTIONS=--use-system-ca node --watch src/server.js",
+    "build": "prisma generate && prisma migrate deploy",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
@@ -27,9 +28,7 @@
     "dotenv": "^17.2.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.14.0"
-  },
-  "devDependencies": {
+    "pg": "^8.14.0",
     "prisma": "7.8.0"
   }
 }

@@ -58,38 +58,41 @@ Production / preview: set **`VITE_API_URL`** to the full API root **including `/
 
 **Seed login:** `anand@sharanya.com` / `admin123`
 
-## Deployment (Railway API + Vercel UI + CockroachDB)
+## Deployment (hosted API + static UI + CockroachDB)
 
-Use the **same Cockroach** cluster you already seeded (or run `npm run db:setup` once against prod from a trusted machine). The API only needs a **`postgresql://` / `postgres://` `DATABASE_URL`** (Cockroach’s connection string).
+Use the **same Cockroach** cluster you already seeded (or run `npm run db:setup` once against prod from a trusted machine). The API needs a **`postgresql://` / `postgres://` `DATABASE_URL`** (Cockroach’s connection string).
 
-### Backend — Railway
+### Backend — Vercel (deploy this project first)
 
-1. **New project** → **Deploy from GitHub** → pick this repo.
-2. **Root Directory:** leave as **repo root** (default). The repo includes **`railway.json`** at the root so Railpack runs **`cd server && npm ci`** and starts the API from **`server/`**. Alternatively you can set Root Directory to **`server`** and rely on **`server/railway.json`** only.
-3. **Variables** (service → Variables):
+1. **New Vercel project** → import this repo → set **Root Directory** to **`server`**.
+2. **Environment variables** (Production; also use Preview if you run preview DB migrations):
 
-   | Name | Value |
+   | Name | Notes |
    |------|--------|
-   | `DATABASE_URL` | Cockroach connection URL (TLS params as required by your host). |
+   | `DATABASE_URL` | Required at **build** time too (`npm run build` runs migrations). |
    | `JWT_SECRET` | Long random string. |
    | `JWT_REFRESH_SECRET` | Different long random string. |
-   | `CORS_ORIGIN` | Your Vercel URL, e.g. `https://your-app.vercel.app` (comma-separate multiple origins). |
+   | `CORS_ORIGIN` | After the UI is deployed, set to the **exact** frontend origin (e.g. `https://your-app.vercel.app`). You can redeploy the API once the UI URL is known. |
    | `NODE_ENV` | `production` |
 
-   Do **not** set `PORT` yourself unless you know what you’re doing — Railway injects it.
+3. **Deploy:** Vercel runs **`npm run build`** (`prisma generate` + **`prisma migrate deploy`**) then deploys the serverless handler in **`api/index.js`**. All HTTP traffic is rewritten to that function (`server/vercel.json`).
+4. Copy the deployment URL (e.g. `https://server-xxxxx.vercel.app`). Health check: **`GET https://<api>/api/health`**.
 
-4. **Deploy:** Root **`railway.json`** runs **`cd server && npx prisma migrate deploy`** as **pre-deploy** and **`cd server && npm start`** for the web process. Health: **`GET /api/health`**.
-5. Copy the service **public HTTPS URL** (e.g. `https://xxx.up.railway.app`) for the client.
+Local long-running server (non-Vercel): from **`server/`**, **`npm install`**, **`npm run db:setup`** or migrate as needed, then **`npm start`** on **`PORT`**.
 
-### Frontend — Vercel
+### Frontend — Vercel (after the API URL exists)
 
-1. **New project** → same repo → **Root Directory:** `client`.
-2. **Environment variables** (Production): **`VITE_API_URL`** = `https://<your-railway-host>/api` (must end with `/api`).
-3. Build: **`npm run build`** (default), output **`dist`**.
+1. **Second Vercel project** → same repo → **Root Directory:** **`client`**.
+2. **Environment variables** (Production): **`VITE_API_URL`** = `https://<your-api-deployment>.vercel.app/api` (must end with **`/api`**). Use the **same** value for Preview if you test against the same API.
+3. Build is **`npm run build`**; output **`dist`** (`client/vercel.json`).
 
-Redeploy the client when `VITE_API_URL` changes (it is baked in at build time).
+Redeploy the client whenever **`VITE_API_URL`** changes (it is baked in at build time).
 
-### After deploy
+### After both are live
 
-- Set **`CORS_ORIGIN`** on Railway to the **exact** browser origin Vercel uses (no mismatch on `www`).
-- Smoke-test: `GET https://<railway>/api/health` → `{ "status": "ok" }`; open the Vercel app and log in.
+- **`CORS_ORIGIN`** on the API must match the **exact** browser origin of the UI (scheme + host; watch **`www`**).
+- Smoke-test: **`GET https://<api-host>/api/health`** → `{ "status": "ok" }`; open the UI and log in.
+
+### Backend — other Node hosts
+
+From **`server/`**: **`npm install`**, **`npx prisma migrate deploy`** (and seed if needed), **`npm start`**. Set **`PORT`** in the environment if the host does not inject it.

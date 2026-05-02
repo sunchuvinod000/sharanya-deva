@@ -2,7 +2,7 @@
   "name": "sharanya-borewell",
   "private": true,
   "version": "1.0.0",
-  "description": "Monorepo root — API in /server (Railway builds from server/ via railway.json)",
+  "description": "Monorepo root — API in /server",
   "scripts": {
     "start": "cd server && npm start"
   },

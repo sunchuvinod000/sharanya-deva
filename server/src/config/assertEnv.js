@@ -1,6 +1,6 @@
 /**
  * Fail fast on missing required configuration (called before listening).
- * Database: set **`DATABASE_URL`** (e.g. Cockroach Cloud on Railway) *or* **`DB_HOST` / `DB_USER` / `DB_NAME`**.
+ * Database: set **`DATABASE_URL`** (e.g. Cockroach Cloud) *or* **`DB_HOST` / `DB_USER` / `DB_NAME`**.
  */
 export function assertRequiredEnv() {
   const missing = [];
@@ -16,6 +16,9 @@ export function assertRequiredEnv() {
   }
   // DB_PASS may be intentionally empty for local dev
   if (missing.length) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+    throw new Error(
+      `Missing required environment variables: ${missing.join(', ')}. ` +
+        'Set JWT_* and DATABASE_URL (or DB_HOST, DB_USER, DB_NAME) in the environment.'
+    );
   }
 }

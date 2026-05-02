@@ -2,7 +2,8 @@
 // For local Docker Postgres only, temporarily use `provider = "postgresql"` and `@default(autoincrement())` on ids.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

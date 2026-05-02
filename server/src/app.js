@@ -14,6 +14,9 @@ const allowedOrigins = process.env.CORS_ORIGIN
 
 const app = express();
 
+/** Behind reverse proxies — correct `req.ip`, secure cookies if added later */
+app.set('trust proxy', 1);
+
 app.use(
   cors({
     origin: (origin, callback) => {
