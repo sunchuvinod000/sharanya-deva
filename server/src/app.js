@@ -16,23 +16,28 @@ const allowedOrigins = process.env.CORS_ORIGIN
       'http://127.0.0.1:3000',
     ];
 
+/** Preflight + actual responses: methods and headers browsers send for cross-origin API calls. */
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  optionsSuccessStatus: 204,
+  maxAge: 86_400,
+};
+
 const app = express();
 
 /** Behind reverse proxies — correct `req.ip`, secure cookies if added later */
 app.set('trust proxy', 1);
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
-  })
-);
+app.use(cors(corsOptions));
 app.use(express.json());
 
 app.get('/api/health', (_req, res) => {
