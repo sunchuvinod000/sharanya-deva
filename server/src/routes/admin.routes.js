@@ -11,10 +11,14 @@ import {
   isWithinIndiaRoughBounds,
   resolveFarmCoordsForDistance,
 } from '../services/roughFarmLocation.js';
+import { resolveDistrictCentroid } from '../utils/districtResolver.js';
 
 const router = Router();
 router.use(verifyToken);
 router.use(requireAdminForMutations);
+
+/** Must stay aligned with client `<select>` options in Add Farmer / Request detail. */
+const ALLOWED_PURPOSES = new Set(['house_opening', 'marriage', 'personal_function', 'borewell_point']);
 
 function logRouteError(tag, err) {
   console.error(tag, err?.code ?? err?.errno, err?.message ?? err);
@@ -39,6 +43,20 @@ function parseYmd(raw) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return { error: 'Invalid date format. Use YYYY-MM-DD.' };
   return { value: s };
 }
+
+function parseYyyyMm(raw) {
+  if (raw == null || raw === '') return null;
+  const s = String(raw).slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(s)) return { error: 'Invalid month format. Use YYYY-MM.' };
+  return { value: s };
+}
+
+function parsePin6(raw) {
+  const digits = String(raw ?? '').replace(/\D/g, '').slice(0, 6);
+  if (!/^\d{6}$/.test(digits)) return { error: 'PIN code must be exactly 6 digits.' };
+  return { value: digits };
+}
+
 
 /**
  * Unified per-request scheduling.
@@ -159,8 +177,157 @@ router.get('/stats', async (_req, res) => {
   }
 });
 
+/**
+ * Fixed-date (non-borewell) visit calendar availability.
+ * Query: ?month=YYYY-MM (defaults to current month)
+ */
+router.get('/visit-calendar', async (req, res) => {
+  try {
+    const now = new Date();
+    const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const parsed = parseYyyyMm(req.query.month ?? defaultMonth);
+    if (parsed?.error) return res.status(400).json({ message: parsed.error });
+    const month = parsed?.value ?? defaultMonth;
+    const from = `${month}-01`;
+    // end of month: JS Date trick (day 0 of next month)
+    const [y, m] = month.split('-').map((n) => Number(n));
+    const lastDay = new Date(y, m, 0).getDate();
+    const to = `${month}-${String(lastDay).padStart(2, '0')}`;
+    const rows = await requestModel.getFixedVisitCalendarRows({ from, to });
+    const withCentroids = rows.map((r) => {
+      const out = resolveDistrictCentroid(String(r.state ?? ''), String(r.district ?? ''));
+      const centroid = out.centroid;
+      return {
+        ...r,
+        district_centroid: centroid,
+        district_centroid_source: out.centroidSource,
+      };
+    });
+    return res.json({ month, from, to, rows: withCentroids });
+  } catch (err) {
+    logRouteError('[GET /admin/visit-calendar]', err);
+    return res.status(500).json({ message: 'Failed to load visit calendar.' });
+  }
+});
+
+/** In-memory pin → lookup response (reduces India Post API chatter). Not shared across server instances. */
+const pincodeLookupCache = new Map();
+const PINCODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Pincode lookup (offline client helper for feasibility). Uses India Post API (public).
+ * Query: ?pin=123456
+ */
+router.get('/pincode-lookup', async (req, res) => {
+  try {
+    const parsed = parsePin6(req.query.pin);
+    if (parsed?.error) return res.status(400).json({ message: parsed.error });
+    const pin = parsed.value;
+
+    const cached = pincodeLookupCache.get(pin);
+    if (cached && Date.now() - cached.at < PINCODE_CACHE_TTL_MS) {
+      return res.json(cached.payload);
+    }
+
+    const r = await fetch(`https://api.postalpincode.in/pincode/${pin}`, {
+      headers: { accept: 'application/json' },
+    });
+    if (!r.ok) {
+      return res.status(502).json({ message: 'Failed to lookup pincode.' });
+    }
+    const body = await r.json();
+    const first = Array.isArray(body) ? body[0] : null;
+    const po = first?.PostOffice && Array.isArray(first.PostOffice) ? first.PostOffice[0] : null;
+    const district = po?.District ? String(po.District) : '';
+    const state = po?.State ? String(po.State) : '';
+    if (!district || !state) {
+      return res.status(404).json({ message: 'Pincode not found.' });
+    }
+
+    const out = resolveDistrictCentroid(state, district);
+    const payload = {
+      pin,
+      state,
+      district,
+      centroidDistrict: out.canonicalDistrict,
+      centroid: out.centroid,
+      centroidSource: out.centroidSource,
+    };
+    pincodeLookupCache.set(pin, { at: Date.now(), payload });
+    return res.json(payload);
+  } catch (err) {
+    logRouteError('[GET /admin/pincode-lookup]', err);
+    return res.status(500).json({ message: 'Failed to lookup pincode.' });
+  }
+});
+
 router.get('/geo/village-states', (_req, res) => {
   return res.json({ states: villageData.statesWithVillageData() });
+});
+
+// In-process bootstrap cache for cascading address data.
+// This avoids rebuilding a large villages snapshot on every dashboard load.
+let geoBootstrapCache = null;
+let geoBootstrapCacheAt = 0;
+const GEO_BOOTSTRAP_TTL_MS = 30 * 60 * 1000;
+
+router.get('/geo/bootstrap', async (req, res) => {
+  try {
+    const bypassCache = String(req.query.refresh ?? '') === '1';
+    const now = Date.now();
+    if (!bypassCache && geoBootstrapCache && now - geoBootstrapCacheAt < GEO_BOOTSTRAP_TTL_MS) {
+      return res.json(geoBootstrapCache);
+    }
+
+    const [districtRows] = await pool.execute('SELECT id, name, state FROM districts ORDER BY state, name');
+    const [mandalRows] = await pool.execute('SELECT id, name, district_id FROM mandals ORDER BY district_id, name');
+
+    const districtsByState = {};
+    for (const d of districtRows) {
+      const s = String(d.state ?? '');
+      if (!districtsByState[s]) districtsByState[s] = [];
+      districtsByState[s].push({ id: Number(d.id), name: d.name, state: d.state });
+    }
+
+    const mandalsByDistrict = {};
+    for (const m of mandalRows) {
+      const did = String(m.district_id);
+      if (!mandalsByDistrict[did]) mandalsByDistrict[did] = [];
+      mandalsByDistrict[did].push({ id: Number(m.id), name: m.name, district_id: Number(m.district_id) });
+    }
+
+    // Join once so villages can be derived from local geo JSON.
+    const [joinRows] = await pool.execute(
+      `SELECT m.id AS mandal_id, m.name AS mandal_name, d.id AS district_id, d.name AS district_name, d.state
+       FROM mandals m
+       INNER JOIN districts d ON m.district_id = d.id
+       ORDER BY d.state, d.name, m.name`
+    );
+    const villagesByMandal = {};
+    for (const r of joinRows) {
+      const villages = villageData.listVillages(r.state, r.district_name, r.mandal_name);
+      const matchedJsonDistrict = villageData.findDistrictEntry(r.state, r.district_name);
+      villagesByMandal[String(r.mandal_id)] = {
+        villages,
+        hasDirectory: villages.length > 0,
+        jsonDistrict: matchedJsonDistrict?.district ?? null,
+      };
+    }
+
+    const payload = {
+      states: villageData.statesWithVillageData(),
+      districtsByState,
+      mandalsByDistrict,
+      villagesByMandal,
+      generatedAt: new Date().toISOString(),
+    };
+    geoBootstrapCache = payload;
+    geoBootstrapCacheAt = now;
+    return res.json(payload);
+  } catch (err) {
+    logRouteError('[GET /admin/geo/bootstrap]', err);
+    return res.status(500).json({ message: 'Failed to load geo bootstrap.' });
+  }
 });
 
 router.get('/geo/villages', async (req, res) => {
@@ -199,6 +366,8 @@ router.post('/farmers', async (req, res) => {
   const {
     full_name,
     purpose_of_visit,
+    expectedVisitDate,
+    expected_visit_date,
     phone,
     village,
     mandal_id,
@@ -214,6 +383,17 @@ router.post('/farmers', async (req, res) => {
   const purpose = purpose_of_visit != null ? String(purpose_of_visit).trim() : '';
   if (purpose && purpose.length > 50) {
     return res.status(400).json({ message: 'Purpose of visit is too long.' });
+  }
+  if (purpose && !ALLOWED_PURPOSES.has(purpose)) {
+    return res.status(400).json({ message: 'Invalid purpose of visit.' });
+  }
+  const borewellPurpose = purpose === 'borewell_point';
+  if (!borewellPurpose) {
+    const parsed = parseYmd(expectedVisitDate ?? expected_visit_date);
+    if (parsed?.error) return res.status(400).json({ message: parsed.error });
+    if (!parsed?.value) {
+      return res.status(400).json({ message: 'Expected visit date is required.' });
+    }
   }
 
   let loc;
@@ -291,6 +471,8 @@ router.post('/farmers', async (req, res) => {
        WHERE status NOT IN ('rejected', 'success', 'failure', 'on_hold')`
     );
     const expectedOffsetDays = Math.max(0, Number(ocRows[0]?.open_count) || 0);
+    const fixedVisitParsed = !borewellPurpose ? parseYmd(expectedVisitDate ?? expected_visit_date) : null;
+    const fixedVisitYmd = fixedVisitParsed?.value ?? null;
 
     const [insFarmer] = await conn.execute(
       `INSERT INTO farmers (
@@ -325,13 +507,15 @@ router.post('/farmers', async (req, res) => {
          requested_date, created_at, updated_at
        ) VALUES (
          ?, 'pending', 'normal',
-         (CURRENT_DATE + (?::int * INTERVAL '1 day'))::date,
-         (CURRENT_DATE + (?::int * INTERVAL '1 day'))::date,
-         (CURRENT_DATE + (?::int * INTERVAL '1 day'))::date,
+         ${borewellPurpose ? '(CURRENT_DATE + (?::int * INTERVAL \'1 day\'))::date' : 'NULL'},
+         ${borewellPurpose ? '(CURRENT_DATE + (?::int * INTERVAL \'1 day\'))::date' : 'NULL'},
+         ${borewellPurpose ? '(CURRENT_DATE + (?::int * INTERVAL \'1 day\'))::date' : '?::date'},
          CURRENT_DATE, NOW(), NOW()
        )
        RETURNING id`,
-      [farmerId, expectedOffsetDays, expectedOffsetDays, expectedOffsetDays]
+      borewellPurpose
+        ? [farmerId, expectedOffsetDays, expectedOffsetDays, expectedOffsetDays]
+        : [farmerId, fixedVisitYmd]
     );
     const requestId = insReq.insertId;
     await conn.commit();
@@ -494,6 +678,9 @@ router.put('/farmers/:id', async (req, res) => {
       : null;
   if (purpose && purpose.length > 50) {
     return res.status(400).json({ message: 'Purpose of visit is too long.' });
+  }
+  if (purpose && !ALLOWED_PURPOSES.has(purpose)) {
+    return res.status(400).json({ message: 'Invalid purpose of visit.' });
   }
 
   try {

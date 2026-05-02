@@ -13,6 +13,8 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useI18n } from '../context/I18nContext.jsx';
 import LanguageToggle from './LanguageToggle.jsx';
 
+const ADMIN_ONLY_PATHS = new Set(['/add-farmer']);
+
 const LINK_KEYS = [
   { to: '/dashboard', labelKey: 'nav.dashboard', icon: LayoutDashboard },
   { to: '/add-farmer', labelKey: 'nav.addFarmer', icon: UserPlus },
@@ -34,9 +36,29 @@ function titleKeyFromPath(pathname) {
 
 export default function Layout() {
   const { user, logout } = useAuth();
-  const { t, locale } = useI18n();
+  const { t, tx, locale } = useI18n();
   const location = useLocation();
   const [open, setOpen] = useState(false);
+  const [forbiddenBanner, setForbiddenBanner] = useState('');
+  const isAdmin = user?.role === 'admin';
+
+  useEffect(() => {
+    function onForbidden(e) {
+      const msg = e.detail?.message?.trim();
+      const shown = msg ? tx(msg) : '';
+      setForbiddenBanner(shown || t('common.forbiddenHint'));
+    }
+    window.addEventListener('app-forbidden', onForbidden);
+    return () => window.removeEventListener('app-forbidden', onForbidden);
+  }, [t, tx]);
+
+  useEffect(() => {
+    if (!forbiddenBanner) return;
+    const tid = setTimeout(() => setForbiddenBanner(''), 6000);
+    return () => clearTimeout(tid);
+  }, [forbiddenBanner]);
+
+  const visibleLinks = LINK_KEYS.filter((link) => isAdmin || !ADMIN_ONLY_PATHS.has(link.to));
 
   useEffect(() => {
     const section = t(titleKeyFromPath(location.pathname));
@@ -44,7 +66,19 @@ export default function Layout() {
   }, [location.pathname, locale, t]);
 
   return (
-    <div className="flex min-h-screen min-w-0 bg-gray-100 font-sans text-base text-slate-900 antialiased">
+    <div
+      className={`flex min-h-screen min-w-0 bg-gray-100 font-sans text-base text-slate-900 antialiased ${
+        forbiddenBanner ? 'pt-11' : ''
+      }`}
+    >
+      {forbiddenBanner ? (
+        <div
+          role="alert"
+          className="fixed left-0 right-0 top-0 z-50 border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-950 shadow-md"
+        >
+          {forbiddenBanner}
+        </div>
+      ) : null}
       <aside
         className={`fixed inset-y-0 left-0 z-40 w-64 transform bg-slate-800 text-white shadow-lg transition md:relative md:translate-x-0 ${
           open ? 'translate-x-0' : '-translate-x-full'
@@ -55,7 +89,7 @@ export default function Layout() {
           <p className="text-xs text-slate-400">{t('nav.tagline')}</p>
         </div>
         <nav className="flex flex-col gap-1 p-3">
-          {LINK_KEYS.map(({ to, labelKey, icon: Icon }) => (
+          {visibleLinks.map(({ to, labelKey, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}

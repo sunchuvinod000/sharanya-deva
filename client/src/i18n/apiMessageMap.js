@@ -13,6 +13,8 @@ export const API_MESSAGE_MAP = {
 
   'Authentication required.': 'api.authRequired',
   'Invalid or expired token.': 'api.tokenInvalid',
+  'Admin access required.': 'api.adminRequired',
+  'Invalid purpose of visit.': 'api.invalidPurpose',
 
   'Not allowed by CORS': 'api.cors',
 

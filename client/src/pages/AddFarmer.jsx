@@ -1,15 +1,22 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Navigate } from 'react-router-dom';
 import { api } from '../services/api.js';
 import CascadingAddress from '../components/CascadingAddress.jsx';
+import ExpectedVisitCalendarField from '../components/ExpectedVisitCalendarField.jsx';
 import { useI18n } from '../context/I18nContext.jsx';
+import { useGeoAddress } from '../context/GeoAddressContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const phoneRe = /^[6-9]\d{9}$/;
 const pinRe = /^\d{6}$/;
 
 export default function AddFarmer() {
   const { t, tx } = useI18n();
+  const { user } = useAuth();
+  const geo = useGeoAddress();
   const [fullName, setFullName] = useState('');
   const [purposeOfVisit, setPurposeOfVisit] = useState('');
+  const [expectedVisitDate, setExpectedVisitDate] = useState('');
   const [phone, setPhone] = useState('');
   const [village, setVillage] = useState('');
   const [state, setState] = useState('Andhra Pradesh');
@@ -26,6 +33,7 @@ export default function AddFarmer() {
   function resetForm() {
     setFullName('');
     setPurposeOfVisit('');
+    setExpectedVisitDate('');
     setPhone('');
     setVillage('');
     setState('Andhra Pradesh');
@@ -41,6 +49,14 @@ export default function AddFarmer() {
       setVillages([]);
       setVillage('');
       setVillageFromDirectory(false);
+      return;
+    }
+    const cached = geo?.getVillages?.(mandalId);
+    if (cached) {
+      setVillages(Array.isArray(cached.villages) ? cached.villages : []);
+      setVillage('');
+      setVillageFromDirectory(!!cached.hasDirectory);
+      setVillagesLoading(false);
       return;
     }
     let cancel = false;
@@ -66,7 +82,7 @@ export default function AddFarmer() {
     return () => {
       cancel = true;
     };
-  }, [districtId, mandalId]);
+  }, [districtId, mandalId, geo]);
 
   const onStateChange = useCallback((s) => {
     setState(s);
@@ -87,6 +103,11 @@ export default function AddFarmer() {
     e.preventDefault();
     setError('');
     setSuccess('');
+    const borewellPurpose = purposeOfVisit === 'borewell_point';
+    if (!borewellPurpose && !expectedVisitDate) {
+      setError(t('addFarmer.errExpectedVisitDate'));
+      return;
+    }
     if (!phoneRe.test(phone)) {
       setError(t('addFarmer.errPhone'));
       return;
@@ -100,6 +121,7 @@ export default function AddFarmer() {
       const { data } = await api.post('/admin/farmers', {
         full_name: fullName,
         purpose_of_visit: purposeOfVisit,
+        ...(borewellPurpose ? {} : { expectedVisitDate }),
         phone,
         village,
         mandal_id: mandalId,
@@ -137,6 +159,10 @@ export default function AddFarmer() {
           ? 'select'
           : 'manual';
 
+  if (!user || user.role !== 'admin') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl">
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:rounded-2xl sm:p-6 md:p-8">
@@ -169,6 +195,17 @@ export default function AddFarmer() {
                 <option value="borewell_point">{t('addFarmer.purpose.borewell_point')}</option>
               </select>
             </div>
+            {purposeOfVisit && purposeOfVisit !== 'borewell_point' && (
+              <ExpectedVisitCalendarField
+                label={t('addFarmer.expectedVisitDate')}
+                value={expectedVisitDate}
+                onChange={setExpectedVisitDate}
+                enableCalendar
+                required
+                hint={t('addFarmer.calendarHint')}
+                inputClassName="w-full rounded-lg border border-gray-300 px-3 py-2 text-slate-900"
+              />
+            )}
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">{t('addFarmer.phone')}</label>
               <input

@@ -6,6 +6,11 @@ const { Pool } = pg;
 // BIGINT (OID 20) → number so Express `res.json()` never throws on BigInt.
 pg.types.setTypeParser(20, (val) => (val == null ? null : Number(val)));
 
+// DATE (OID 1082) → keep wire text `YYYY-MM-DD`. Default parser builds a JS Date and
+// `JSON.stringify` turns it into UTC ISO (`…T00:00…Z` in some zones), which makes
+// `.slice(0, 10)` on the client appear as the **previous calendar day** for TZ ahead of UTC (e.g. IST).
+pg.types.setTypeParser(1082, (val) => val);
+
 export function buildConnectionString() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const host = process.env.DB_HOST || 'localhost';

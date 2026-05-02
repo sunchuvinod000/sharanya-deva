@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   PieChart,
   Pie,
@@ -14,11 +13,11 @@ import {
 } from 'recharts';
 import { Clock, CheckCircle, Trophy, Users } from 'lucide-react';
 import { api } from '../services/api.js';
-import StatusBadge from '../components/StatusBadge.jsx';
+import FarmersDataTable from '../components/FarmersDataTable.jsx';
 import { useMediaQuery } from '../hooks/useMediaQuery.js';
 import { useI18n } from '../context/I18nContext.jsx';
-import { formatDisplayDate } from '../i18n/formatDate.js';
 import { translateStateName } from '../i18n/geoLabels.js';
+import { useGeoAddress } from '../context/GeoAddressContext.jsx';
 
 const PIE_COLORS = {
   pending: '#eab308',
@@ -31,23 +30,15 @@ const PIE_COLORS = {
   failure: '#e11d48',
 };
 
-function plannedVisitPrimary(r) {
-  return r.expected_visit_date || r.expected_soil_date || null;
-}
-
-function plannedSoilSublineDiffers(r) {
-  if (!r.expected_soil_date || !r.expected_visit_date) return false;
-  return String(r.expected_soil_date).slice(0, 10) !== String(r.expected_visit_date).slice(0, 10);
-}
-
 export default function Dashboard() {
-  const navigate = useNavigate();
-  const { t, tx, locale } = useI18n();
+  const { t, tx } = useI18n();
+  const { ensureLoaded: ensureGeoLoaded, error: geoError, refreshBootstrap } = useGeoAddress();
   const chartCompact = useMediaQuery('(max-width: 639px)');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
+  const [geoRefreshing, setGeoRefreshing] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -76,6 +67,11 @@ export default function Dashboard() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    // Preload cascading address data once per session.
+    ensureGeoLoaded().catch(() => {});
+  }, [ensureGeoLoaded]);
 
   if (loading) {
     return (
@@ -130,7 +126,17 @@ export default function Dashboard() {
   const pieRadius = chartCompact ? 64 : 100;
   const chartHeight = chartCompact ? 232 : 288;
 
-  const nextToServe = data?.nextToServe ?? data?.recentRequests ?? [];
+  const pipelineRows = (data?.nextToServe ?? data?.recentRequests ?? []).map((r) => ({
+    id: r.farmer_id,
+    full_name: r.farmer_name,
+    phone: r.phone,
+    village: r.village ?? '',
+    mandal_name: r.mandal_name,
+    district_name: r.district,
+    purpose_of_visit: r.purpose_of_visit,
+    status: r.status,
+    expected_visit_date: r.expected_visit_date,
+  }));
 
   return (
     <div className="w-full min-w-0 space-y-4 sm:space-y-5 md:space-y-8">
@@ -142,6 +148,29 @@ export default function Dashboard() {
           {toast}
         </div>
       )}
+      {geoError ? (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between sm:rounded-xl sm:px-4"
+        >
+          <p className="min-w-0 flex-1">{geoError}</p>
+          <button
+            type="button"
+            disabled={geoRefreshing}
+            onClick={async () => {
+              setGeoRefreshing(true);
+              try {
+                await refreshBootstrap();
+              } finally {
+                setGeoRefreshing(false);
+              }
+            }}
+            className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+          >
+            {geoRefreshing ? t('dashboard.working') : t('dashboard.geoRetry')}
+          </button>
+        </div>
+      ) : null}
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4 lg:gap-4">
         <div className="flex min-h-[5.25rem] min-w-0 items-center gap-2 rounded-lg border border-gray-200 bg-white p-3 shadow-sm sm:min-h-0 sm:rounded-xl sm:p-4">
           <div className="shrink-0 rounded-full bg-yellow-100 p-2 text-yellow-700">
@@ -263,118 +292,10 @@ export default function Dashboard() {
           <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">{t('dashboard.nextToServeHelp')}</p>
         </div>
 
-        {nextToServe.length === 0 ? (
+        {pipelineRows.length === 0 ? (
           <p className="px-3 py-8 text-center text-sm text-slate-500 sm:px-4 sm:py-10">{t('dashboard.nextToServeEmpty')}</p>
         ) : (
-          <>
-            <div className="md:hidden">
-              <ul className="divide-y divide-gray-100">
-                {nextToServe.map((r) => (
-                  <li key={r.id}>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/farmers/${r.farmer_id}`)}
-                      className="flex w-full min-w-0 flex-col gap-1 px-3 py-3 text-left active:bg-amber-50/60"
-                    >
-                      <div className="flex min-w-0 items-start justify-between gap-2">
-                        <span className="truncate font-medium text-slate-800">{r.farmer_name}</span>
-                        <StatusBadge status={r.status} />
-                      </div>
-                      <div className="truncate text-xs text-slate-600">
-                        {r.phone} · {r.district}
-                        {r.mandal_name ? ` · ${r.mandal_name}` : ''}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500 sm:text-sm">
-                        <span>#{r.id}</span>
-                        <span>·</span>
-                        <span>
-                          {t('dashboard.thExpectedVisit')}:{' '}
-                          {plannedVisitPrimary(r)
-                            ? formatDisplayDate(plannedVisitPrimary(r), locale)
-                            : t('geo.dash')}
-                          {plannedSoilSublineDiffers(r) && (
-                            <span className="ml-1 block text-xs text-slate-500">
-                              {t('dashboard.plannedSoilLine', {
-                                date: formatDisplayDate(r.expected_soil_date, locale),
-                              })}
-                            </span>
-                          )}
-                        </span>
-                        <span>·</span>
-                        <span>
-                          {t('dashboard.thRegistered')}: {formatDisplayDate(r.requested_date, locale)}
-                        </span>
-                        <span>·</span>
-                        <span className={r.priority === 'urgent' ? 'font-semibold text-red-600' : ''}>
-                          {t(`priority.${r.priority}`)}
-                        </span>
-                      </div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="hidden overflow-x-auto md:block">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-gray-50 text-slate-600">
-                  <tr>
-                    <th className="px-4 py-2">{t('dashboard.thId')}</th>
-                    <th className="px-4 py-2">{t('dashboard.thFarmer')}</th>
-                    <th className="px-4 py-2">{t('dashboard.thPhone')}</th>
-                    <th className="px-4 py-2">{t('dashboard.thDistrict')}</th>
-                    <th className="px-4 py-2">{t('dashboard.thMandal')}</th>
-                    <th className="px-4 py-2">{t('dashboard.thStatus')}</th>
-                    <th className="px-4 py-2">{t('dashboard.thPriority')}</th>
-                    <th className="px-4 py-2">{t('dashboard.thExpectedVisit')}</th>
-                    <th className="px-4 py-2">{t('dashboard.thRegistered')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {nextToServe.map((r) => (
-                    <tr
-                      key={r.id}
-                      onClick={() => navigate(`/farmers/${r.farmer_id}`)}
-                      className="cursor-pointer border-t border-gray-100 hover:bg-amber-50/50"
-                    >
-                      <td className="px-4 py-2">{r.id}</td>
-                      <td className="px-4 py-2 font-medium">{r.farmer_name}</td>
-                      <td className="px-4 py-2">{r.phone}</td>
-                      <td className="px-4 py-2">{r.district}</td>
-                      <td className="px-4 py-2 text-slate-700">{r.mandal_name ?? t('geo.dash')}</td>
-                      <td className="px-4 py-2">
-                        <StatusBadge status={r.status} />
-                      </td>
-                      <td className={`px-4 py-2 ${r.priority === 'urgent' ? 'font-semibold text-red-600' : ''}`}>
-                        {t(`priority.${r.priority}`)}
-                      </td>
-                      <td className="px-4 py-2 text-slate-600 tabular-nums">
-                        {plannedVisitPrimary(r) ? (
-                          <>
-                            <span className="whitespace-nowrap">
-                              {formatDisplayDate(plannedVisitPrimary(r), locale)}
-                            </span>
-                            {plannedSoilSublineDiffers(r) && (
-                              <div className="mt-0.5 text-xs font-normal text-slate-500">
-                                {t('dashboard.plannedSoilLine', {
-                                  date: formatDisplayDate(r.expected_soil_date, locale),
-                                })}
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          t('geo.dash')
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2 text-slate-600 tabular-nums">
-                        {formatDisplayDate(r.requested_date, locale)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+          <FarmersDataTable rows={pipelineRows} embedded />
         )}
       </div>
     </div>

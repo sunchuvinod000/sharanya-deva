@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { I18nProvider } from './context/I18nContext.jsx';
+import { GeoAddressProvider } from './context/GeoAddressContext.jsx';
 import './index.css';
 
 createRoot(document.getElementById('root')).render(
@@ -11,7 +12,9 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <I18nProvider>
         <AuthProvider>
-          <App />
+          <GeoAddressProvider>
+            <App />
+          </GeoAddressProvider>
         </AuthProvider>
       </I18nProvider>
     </BrowserRouter>

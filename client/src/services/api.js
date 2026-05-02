@@ -108,6 +108,13 @@ api.interceptors.response.use(
       return api(original);
     }
 
+    if (original && error.response?.status === 403) {
+      const msg =
+        typeof error.response?.data?.message === 'string' ? error.response.data.message.trim() : '';
+      window.dispatchEvent(new CustomEvent('app-forbidden', { detail: { message: msg } }));
+      return Promise.reject(error);
+    }
+
     if (!original || !error.response || error.response.status !== 401 || original._retry) {
       return Promise.reject(error);
     }

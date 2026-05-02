@@ -524,11 +524,13 @@ export async function getDashboardStats() {
     ORDER BY count DESC
   `);
 
-  /** Open pipeline (not on hold / rejected / closed): district → mandal → urgent → registration order (area-wise, not global date queue). */
+  /** Non–bore-well open pipeline: earliest planned field visit first (fixed-date purposes only). */
   const [nextToServe] = await pool.execute(`
     SELECT r.id,
            f.full_name AS farmer_name,
            f.phone,
+           f.village,
+           f.purpose_of_visit,
            d.name AS district,
            m.name AS mandal_name,
            r.status,
@@ -543,11 +545,11 @@ export async function getDashboardStats() {
     JOIN districts d ON f.district_id = d.id
     JOIN mandals m ON f.mandal_id = m.id
     WHERE r.status NOT IN ('rejected', 'success', 'failure', 'on_hold')
+      AND COALESCE(TRIM(f.purpose_of_visit), '') <> ''
+      AND TRIM(f.purpose_of_visit) <> 'borewell_point'
+      AND r.expected_visit_date IS NOT NULL
     ORDER BY
-      d.name ASC,
-      m.name ASC,
-      CASE r.priority WHEN 'urgent' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
-      r.requested_date ASC,
+      r.expected_visit_date ASC,
       r.id ASC
     LIMIT 15
   `);
@@ -568,4 +570,43 @@ export async function getDashboardStats() {
     totalFarmers,
     monthlyCompleted,
   };
+}
+
+/**
+ * Calendar rows for fixed-date purposes (non-borewell) so the UI can show availability.
+ * Returns open pipeline + on-hold (excludes rejected/success/failure). Includes overdue.
+ *
+ * @param {{ from: string, to: string }} opts YYYY-MM-DD (inclusive)
+ */
+export async function getFixedVisitCalendarRows({ from, to }) {
+  const [rows] = await pool.execute(
+    `
+    SELECT r.id AS request_id,
+           r.status,
+           r.priority,
+           r.expected_visit_date,
+           f.id AS farmer_id,
+           f.full_name AS farmer_name,
+           f.phone,
+           f.purpose_of_visit,
+           f.village,
+           f.state,
+           f.pin_code,
+           d.name AS district,
+           m.name AS mandal_name
+    FROM requests r
+    JOIN farmers f ON r.farmer_id = f.id
+    JOIN districts d ON f.district_id = d.id
+    JOIN mandals m ON f.mandal_id = m.id
+    WHERE r.status NOT IN ('rejected', 'success', 'failure')
+      AND COALESCE(TRIM(f.purpose_of_visit), '') <> ''
+      AND TRIM(f.purpose_of_visit) <> 'borewell_point'
+      AND r.expected_visit_date IS NOT NULL
+      AND r.expected_visit_date >= ?::date
+      AND r.expected_visit_date <= ?::date
+    ORDER BY r.expected_visit_date ASC, d.name ASC, m.name ASC, r.id ASC
+    `,
+    [from, to]
+  );
+  return rows;
 }

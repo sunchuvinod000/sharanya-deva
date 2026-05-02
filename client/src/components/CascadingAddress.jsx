@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../services/api.js';
 import { useI18n } from '../context/I18nContext.jsx';
+import { useGeoAddress } from '../context/GeoAddressContext.jsx';
 import { translateStateName } from '../i18n/geoLabels.js';
 
 const STATES = ['Andhra Pradesh', 'Telangana', 'Karnataka', 'Tamil Nadu'];
@@ -28,6 +29,7 @@ export default function CascadingAddress({
   villageOptions = [],
 }) {
   const { t } = useI18n();
+  const geo = useGeoAddress();
   const [districts, setDistricts] = useState([]);
   const [mandals, setMandals] = useState([]);
   const [loadingD, setLoadingD] = useState(false);
@@ -36,6 +38,12 @@ export default function CascadingAddress({
   useEffect(() => {
     if (!state) {
       setDistricts([]);
+      return;
+    }
+    const cached = geo?.getDistricts?.(state) || [];
+    if (cached.length) {
+      setDistricts(cached);
+      setLoadingD(false);
       return;
     }
     let cancel = false;
@@ -58,6 +66,12 @@ export default function CascadingAddress({
   useEffect(() => {
     if (!districtId) {
       setMandals([]);
+      return;
+    }
+    const cached = geo?.getMandals?.(districtId) || [];
+    if (cached.length) {
+      setMandals(cached);
+      setLoadingM(false);
       return;
     }
     let cancel = false;
