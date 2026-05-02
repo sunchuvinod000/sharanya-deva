@@ -7,37 +7,49 @@ function normalizeOriginUrl(o) {
   return String(o).trim().replace(/\/+$/, '');
 }
 
-const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map((o) => normalizeOriginUrl(o))
-  : [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-    ];
+const devOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
 
-/** Preflight + actual responses: methods and headers browsers send for cross-origin API calls. */
-const corsOptions = {
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+const configuredOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((o) => normalizeOriginUrl(o))
+  : [];
+
+function originAllowed(origin) {
+  if (!origin) return true;
+  if (configuredOrigins.includes(origin) || devOrigins.includes(origin)) return true;
+  // Preview / branch deploys use *.vercel.app hostnames; opt-in so production stays explicit via CORS_ORIGIN.
+  if (process.env.CORS_ALLOW_VERCEL_PREVIEW_ORIGINS === 'true') {
+    try {
+      const { protocol, hostname } = new URL(origin);
+      return protocol === 'https:' && hostname.endsWith('.vercel.app');
+    } catch {
+      return false;
     }
-  },
-  credentials: true,
-  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
-  optionsSuccessStatus: 204,
-  maxAge: 86_400,
-};
+  }
+  return false;
+}
 
 const app = express();
 
 /** Behind reverse proxies — correct `req.ip`, secure cookies if added later */
 app.set('trust proxy', 1);
 
-app.use(cors(corsOptions));
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (originAllowed(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 app.get('/api/health', (_req, res) => {
