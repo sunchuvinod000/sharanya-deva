@@ -4,7 +4,7 @@ import app from './app.js';
 
 assertRequiredEnv();
 
-/** Vercel runs `api/index.js`; this file is only for local / long-running Node. */
+/** Local Node listens on `PORT`; Vercel invokes this module as one serverless app (`export default`). */
 if (!process.env.VERCEL) {
   /** HTTP API port only (`PORT`). Database port is `DB_PORT` / `db_port` — see `src/config/dbEnv.js`. */
   const port = Number(process.env.PORT) || 5000;
@@ -12,3 +12,5 @@ if (!process.env.VERCEL) {
     console.log(`Server listening on http://localhost:${port}`);
   });
 }
+
+export default app;

@@ -71,11 +71,7 @@ function processQueue(error, token = null) {
 export async function refreshAccessToken() {
   const refreshToken = localStorage.getItem('refreshToken');
   if (!refreshToken) throw new Error('No refresh token');
-  const { data } = await axios.post(
-    `${getApiRoot()}/auth/refresh`,
-    { refreshToken },
-    { withCredentials: true, timeout: DEFAULT_TIMEOUT_MS }
-  );
+  const { data } = await api.post('/auth/refresh', { refreshToken });
   return data.accessToken;
 }
 
@@ -141,10 +137,6 @@ api.interceptors.response.use(
 );
 
 export async function apiLogin(email, password) {
-  const { data } = await axios.post(
-    `${getApiRoot()}/auth/login`,
-    { email, password },
-    { withCredentials: true, timeout: DEFAULT_TIMEOUT_MS }
-  );
+  const { data } = await api.post('/auth/login', { email, password });
   return data;
 }

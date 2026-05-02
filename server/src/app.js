@@ -3,8 +3,12 @@ import cors from 'cors';
 import authRoutes from './routes/auth.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 
+function normalizeOriginUrl(o) {
+  return String(o).trim().replace(/\/+$/, '');
+}
+
 const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+  ? process.env.CORS_ORIGIN.split(',').map((o) => normalizeOriginUrl(o))
   : [
       'http://localhost:5173',
       'http://127.0.0.1:5173',

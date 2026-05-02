@@ -75,7 +75,7 @@ Use the **same Cockroach** cluster you already seeded (or run `npm run db:setup`
    | `CORS_ORIGIN` | After the UI is deployed, set to the **exact** frontend origin (e.g. `https://your-app.vercel.app`). You can redeploy the API once the UI URL is known. |
    | `NODE_ENV` | `production` |
 
-3. **Deploy:** Vercel runs **`npm run build`** (`prisma generate` + **`prisma migrate deploy`**) then deploys the serverless handler in **`api/index.js`**. All HTTP traffic is rewritten to that function (`server/vercel.json`).
+3. **Deploy:** Vercel runs **`npm run build`** (`prisma generate` + **`prisma migrate deploy`**) then serves **`src/server.js`** as a single Express app (no path rewrites; see Vercel’s Express backend docs).
 4. Copy the deployment URL (e.g. `https://server-xxxxx.vercel.app`). Health check: **`GET https://<api>/api/health`**.
 
 Local long-running server (non-Vercel): from **`server/`**, **`npm install`**, **`npm run db:setup`** or migrate as needed, then **`npm start`** on **`PORT`**.
