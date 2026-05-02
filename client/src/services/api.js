@@ -16,6 +16,16 @@ function normalizeApiRoot(raw) {
 
 const API_ROOT = normalizeApiRoot(import.meta.env.VITE_API_URL);
 
+if (import.meta.env.DEV) {
+  console.info(
+    '[api] baseURL =',
+    API_ROOT,
+    import.meta.env.VITE_API_URL
+      ? '(from VITE_API_URL)'
+      : '(unset → relative /api; Vite proxies to vite.config.js target, usually localhost:5000)'
+  );
+}
+
 export const api = axios.create({
   baseURL: API_ROOT,
   withCredentials: true,
